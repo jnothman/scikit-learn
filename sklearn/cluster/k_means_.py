@@ -210,7 +210,7 @@ def k_means(X, n_clusters, init='k-means++', precompute_distances=True,
         parallel.
 
         If -1 all CPUs are used. If 1 is given, no parallel computing code is
-        used at all, which is useful for debuging. For n_jobs below -1,
+        used at all, which is useful for debugging. For n_jobs below -1,
         (n_cpus + 1 + n_jobs) are used. Thus for n_jobs = -2, all CPUs but one
         are used.
 
@@ -305,7 +305,7 @@ def _kmeans_single(X, n_clusters, max_iter=300, init='k-means++',
     X: array-like of floats, shape (n_samples, n_features)
         The observations to cluster.
 
-    k: int
+    n_clusters: int
         The number of clusters to form as well as the number of
         centroids to generate.
 
@@ -386,7 +386,7 @@ def _kmeans_single(X, n_clusters, max_iter=300, init='k-means++',
             centers = _k_means._centers_dense(X, labels, n_clusters, distances)
 
         if verbose:
-            print('Iteration %i, inertia %s' % (i, inertia))
+            print('Iteration %2d, inertia %.3f' % (i, inertia))
 
         if best_inertia is None or inertia < best_inertia:
             best_labels = labels.copy()
@@ -395,7 +395,7 @@ def _kmeans_single(X, n_clusters, max_iter=300, init='k-means++',
 
         if np.sum((centers_old - centers) ** 2) < tol:
             if verbose:
-                print('Converged to similar centers at iteration', i)
+                print("Converged at iteration %d" % i)
             break
     return best_labels, best_inertia, best_centers
 
@@ -446,7 +446,8 @@ def _labels_inertia(X, x_squared_norms, centers,
         The cluster centers.
 
     distances: float64 array, shape (n_samples,)
-        Distances for each sample to its closest center.
+        Pre-allocated array to be filled in with each sample's distance
+        to the closest center.
 
     Returns
     -------
@@ -500,7 +501,7 @@ def _init_centroids(X, k, init, random_state=None, x_squared_norms=None,
 
     init_size : int, optional
         Number of samples to randomly sample for speeding up the
-        initialization (sometimes at the expense of accurracy): the
+        initialization (sometimes at the expense of accuracy): the
         only algorithm is initialized by running a batch KMeans on a
         random subset of the data. This needs to be larger than k.
 
@@ -597,7 +598,7 @@ class KMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         parallel.
 
         If -1 all CPUs are used. If 1 is given, no parallel computing code is
-        used at all, which is useful for debuging. For n_jobs below -1,
+        used at all, which is useful for debugging. For n_jobs below -1,
         (n_cpus + 1 + n_jobs) are used. Thus for n_jobs = -2, all CPUs but one
         are used.
 
@@ -650,7 +651,7 @@ class KMeans(BaseEstimator, ClusterMixin, TransformerMixin):
 
         if hasattr(init, '__array__'):
             n_clusters = init.shape[0]
-            init = np.asanyarray(init, dtype=np.float64)
+            init = np.asarray(init, dtype=np.float64)
 
         self.n_clusters = n_clusters
         self.init = init
@@ -768,8 +769,8 @@ class KMeans(BaseEstimator, ClusterMixin, TransformerMixin):
 
         Returns
         -------
-        Y : array, shape [n_samples,]
-            Index of the closest center each sample belongs to.
+        labels : array, shape [n_samples,]
+            Index of the cluster each sample belongs to.
         """
         self._check_fitted()
         X = self._check_test_data(X)
@@ -846,27 +847,26 @@ def _mini_batch_step(X, x_squared_norms, centers, counts,
     # Perform label assignment to nearest centers
     nearest_center, inertia = _labels_inertia(X, x_squared_norms, centers,
                                               distances=distances)
+
     if random_reassign and reassignment_ratio > 0:
         random_state = check_random_state(random_state)
         # Reassign clusters that have very low counts
         to_reassign = np.logical_or(
             (counts <= 1), counts <= reassignment_ratio * counts.max())
-        number_of_reassignments = to_reassign.sum()
-        if number_of_reassignments:
+        n_reassigns = min(to_reassign.sum(), X.shape[0])
+        if n_reassigns:
             # Pick new clusters amongst observations with probability
             # proportional to their closeness to their center.
             # Flip the ordering of the distances.
             distances -= distances.max()
             distances *= -1
-            rand_vals = random_state.rand(number_of_reassignments)
+            rand_vals = random_state.rand(n_reassigns)
             rand_vals *= distances.sum()
             new_centers = np.searchsorted(distances.cumsum(),
                                           rand_vals)
             if verbose:
-                n_reassigns = to_reassign.sum()
-                if n_reassigns:
-                    print("[MiniBatchKMeans] Reassigning %i cluster centers."
-                          % n_reassigns)
+                print("[MiniBatchKMeans] Reassigning %i cluster centers."
+                      % n_reassigns)
 
             if sp.issparse(X) and not sp.issparse(centers):
                 assign_rows_csr(X, new_centers, np.where(to_reassign)[0],
@@ -874,7 +874,7 @@ def _mini_batch_step(X, x_squared_norms, centers, counts,
             else:
                 centers[to_reassign] = X[new_centers]
 
-    # implementation for the sparse CSR reprensation completely written in
+    # implementation for the sparse CSR representation completely written in
     # cython
     if sp.issparse(X):
         return inertia, _k_means._mini_batch_update_csr(
@@ -941,7 +941,7 @@ def _mini_batch_convergence(model, iteration_idx, n_iter, tol,
     if verbose:
         progress_msg = (
             'Minibatch iteration %d/%d:'
-            'mean batch inertia: %f, ewa inertia: %f ' % (
+            ' mean batch inertia: %f, ewa inertia: %f ' % (
                 iteration_idx + 1, n_iter, batch_inertia,
                 ewa_inertia))
         print(progress_msg)
@@ -1016,7 +1016,7 @@ class MiniBatchKMeans(KMeans):
 
     init_size : int, optional, default: 3 * batch_size
         Number of samples to randomly sample for speeding up the
-        initialization (sometimes at the expense of accurracy): the
+        initialization (sometimes at the expense of accuracy): the
         only algorithm is initialized by running a batch KMeans on a
         random subset of the data. This needs to be larger than k.
 
@@ -1036,7 +1036,7 @@ class MiniBatchKMeans(KMeans):
 
     n_init : int, default=3
         Number of random initializations that are tried.
-        In constrast to KMeans, the algorithm is only run once, using the
+        In contrast to KMeans, the algorithm is only run once, using the
         best of the ``n_init`` initializations as measured by inertia.
 
     compute_labels : boolean

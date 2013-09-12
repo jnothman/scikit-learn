@@ -1,5 +1,5 @@
 """
-The :mod:`sklearn.utils` module includes various utilites.
+The :mod:`sklearn.utils` module includes various utilities.
 """
 
 from collections import Sequence
@@ -12,15 +12,15 @@ from .murmurhash import murmurhash3_32
 from .validation import (as_float_array, check_arrays, safe_asarray,
                          assert_all_finite, array2d, atleast2d_or_csc,
                          atleast2d_or_csr, warn_if_not_float,
-                         check_random_state)
+                         check_random_state, column_or_1d)
 from .class_weight import compute_class_weight
-from sklearn.utils.mst import minimum_spanning_tree
+from sklearn.utils.sparsetools import minimum_spanning_tree
 
 
 __all__ = ["murmurhash3_32", "as_float_array", "check_arrays", "safe_asarray",
            "assert_all_finite", "array2d", "atleast2d_or_csc",
            "atleast2d_or_csr", "warn_if_not_float", "check_random_state",
-           "compute_class_weight",  "minimum_spanning_tree"]
+           "compute_class_weight", "minimum_spanning_tree", "column_or_1d"]
 
 # Make sure that DeprecationWarning get printed
 warnings.simplefilter("always", DeprecationWarning)
@@ -123,7 +123,7 @@ def safe_mask(X, mask):
     -------
         mask
     """
-    mask = np.asanyarray(mask)
+    mask = np.asarray(mask)
     if np.issubdtype(mask.dtype, np.int):
         return mask
 
@@ -322,6 +322,31 @@ def safe_sqr(X, copy=True):
         else:
             X **= 2
     return X
+
+
+def gen_batches(n, batch_size):
+    """Generator to create slices containing batch_size elements, from 0 to n.
+
+    The last slice may contain less than batch_size elements, when batch_size
+    does not divide n.
+
+    Examples
+    --------
+    >>> from sklearn.utils import gen_batches
+    >>> list(gen_batches(7, 3))
+    [slice(0, 3, None), slice(3, 6, None), slice(6, 7, None)]
+    >>> list(gen_batches(6, 3))
+    [slice(0, 3, None), slice(3, 6, None)]
+    >>> list(gen_batches(2, 3))
+    [slice(0, 2, None)]
+    """
+    start = 0
+    for _ in range(int(n // batch_size)):
+        end = start + batch_size
+        yield slice(start, end)
+        start = end
+    if start < n:
+        yield slice(start, n)
 
 
 def gen_even_slices(n, n_packs):

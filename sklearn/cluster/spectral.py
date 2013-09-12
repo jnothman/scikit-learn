@@ -10,7 +10,7 @@ import warnings
 import numpy as np
 
 from ..base import BaseEstimator, ClusterMixin
-from ..utils import check_random_state, as_float_array, deprecated
+from ..utils import check_random_state, as_float_array
 from ..utils.extmath import norm
 from ..metrics.pairwise import pairwise_kernels
 from ..neighbors import kneighbors_graph
@@ -157,9 +157,7 @@ def discretize(vectors, copy=True, max_svd_restarts=30, n_iter_max=20,
 
 def spectral_clustering(affinity, n_clusters=8, n_components=None,
                         eigen_solver=None, random_state=None, n_init=10,
-                        k=None, eigen_tol=0.0,
-                        assign_labels='kmeans',
-                        mode=None):
+                        eigen_tol=0.0, assign_labels='kmeans'):
     """Apply clustering to a projection to the normalized laplacian.
 
     In practice Spectral Clustering is very useful when the structure of
@@ -175,12 +173,12 @@ def spectral_clustering(affinity, n_clusters=8, n_components=None,
     -----------
     affinity: array-like or sparse matrix, shape: (n_samples, n_samples)
         The affinity matrix describing the relationship of the samples to
-        embed. **Must be symetric**.
+        embed. **Must be symmetric**.
 
         Possible examples:
           - adjacency matrix of a graph,
           - heat kernel of the pairwise distance matrix of the samples,
-          - symmetic k-nearest neighbours connectivity matrix of the samples.
+          - symmetric k-nearest neighbours connectivity matrix of the samples.
 
     n_clusters: integer, optional
         Number of clusters to extract.
@@ -249,17 +247,6 @@ def spectral_clustering(affinity, n_clusters=8, n_components=None,
                          "'kmeans' or 'discretize', but '%s' was given"
                          % assign_labels)
 
-    if not k is None:
-        warnings.warn("'k' was renamed to n_clusters and will "
-                      "be removed in 0.15.",
-                      DeprecationWarning)
-        n_clusters = k
-    if not mode is None:
-        warnings.warn("'mode' was renamed to eigen_solver "
-                      "and will be removed in 0.15.",
-                      DeprecationWarning)
-        eigen_solver = mode
-
     random_state = check_random_state(random_state)
     n_components = n_clusters if n_components is None else n_components
     maps = spectral_embedding(affinity, n_components=n_components,
@@ -314,7 +301,7 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
         by the clustering algorithm.
 
     gamma: float
-        Scaling factor of RBF, polynomial, exponential chi² and
+        Scaling factor of RBF, polynomial, exponential chi^2 and
         sigmoid affinity kernel. Ignored for
         ``affinity='nearest_neighbors'``.
 
@@ -401,20 +388,9 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
     """
 
     def __init__(self, n_clusters=8, eigen_solver=None, random_state=None,
-                 n_init=10, gamma=1., affinity='rbf', n_neighbors=10, k=None,
-                 eigen_tol=0.0, assign_labels='kmeans', mode=None,
-                 degree=3, coef0=1, kernel_params=None):
-        if k is not None:
-            warnings.warn("'k' was renamed to n_clusters and "
-                          "will be removed in 0.15.",
-                          DeprecationWarning)
-            n_clusters = k
-        if mode is not None:
-            warnings.warn("'mode' was renamed to eigen_solver and "
-                          "will be removed in 0.15.",
-                          DeprecationWarning)
-            eigen_solver = mode
-
+                 n_init=10, gamma=1., affinity='rbf', n_neighbors=10,
+                 eigen_tol=0.0, assign_labels='kmeans', degree=3, coef0=1,
+                 kernel_params=None):
         self.n_clusters = n_clusters
         self.eigen_solver = eigen_solver
         self.random_state = random_state
@@ -474,15 +450,3 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
     @property
     def _pairwise(self):
         return self.affinity == "precomputed"
-
-    @property
-    @deprecated("'mode' was renamed to eigen_solver and will be removed in"
-                " 0.15.")
-    def mode(self):
-        return self.eigen_solver
-
-    @property
-    @deprecated("'k' was renamed to n_clusters and will be removed in"
-                " 0.15.")
-    def k(self):
-        return self.n_clusters

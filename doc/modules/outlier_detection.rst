@@ -7,7 +7,7 @@ Novelty and Outlier Detection
 .. currentmodule:: sklearn
 
 Many applications require being able to decide whether a new observation
-belongs to the same distribution as exiting observations (it is an
+belongs to the same distribution as existing observations (it is an
 `inlier`), or should be considered as different (it is an outlier).
 Often, this ability is used to clean real data sets. Two important
 distinction must be made:
@@ -24,7 +24,7 @@ The scikit-learn project provides a set of machine learning tools that
 can be used both for novelty or outliers detection. This strategy is
 implemented with objects learning in an unsupervised way from the data::
 
-    estimor.fit(X_train)
+    estimator.fit(X_train)
 
 new observations can then be sorted as inliers or outliers with a
 `predict` method::
@@ -57,7 +57,7 @@ The One-Class SVM has been introduced in [1] for that purpose and
 implemented in the :ref:`svm` module in the
 :class:`svm.OneClassSVM` object. It requires the choice of a
 kernel and a scalar parameter to define a frontier.  The RBF kernel is
-usually chosen although there exist no exact formula or algorithm to
+usually chosen although there exists no exact formula or algorithm to
 set its bandwidth parameter. This is the default in the scikit-learn
 implementation. The :math:`\nu` parameter, also known as the margin of
 the One-Class SVM, corresponds to the probability of finding a new,
@@ -65,7 +65,7 @@ but regular, observation outside the frontier.
 
 .. topic:: Examples:
 
-   * See :ref:`example_svm_plot_oneclass.py` for vizualizing the
+   * See :ref:`example_svm_plot_oneclass.py` for visualizing the
      frontier learned around some data by a
      :class:`svm.OneClassSVM` object.
 
@@ -80,7 +80,7 @@ Outlier Detection
 
 Outlier detection is similar to novelty detection in the sense that
 the goal is to separate a core of regular observations from some
-polutting ones, called "outliers". Yet, in the case of outlier
+polluting ones, called "outliers". Yet, in the case of outlier
 detection, we don't have a clean data set representing the population
 of regular observations that can be used to train any tool.
 

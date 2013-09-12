@@ -160,14 +160,14 @@ def _chisquare(f_obs, f_exp):
 
 
 def chi2(X, y):
-    """Compute χ² (chi-squared) statistic for each class/feature combination.
+    """Compute chi-squared statistic for each class/feature combination.
 
     This score can be used to select the n_features features with the
-    highest values for the χ² (chi-square) statistic from X, which must
+    highest values for the test chi-squared statistic from X, which must
     contain booleans or frequencies (e.g., term counts in document
     classification), relative to the classes.
 
-    Recall that the χ² statistic measures dependence between stochastic
+    Recall that the chi-square test measures dependence between stochastic
     variables, so using this function "weeds out" the features that are the
     most likely to be independent of class and therefore irrelevant for
     classification.
@@ -299,10 +299,6 @@ class _PvalueFilter(_BaseFilter):
         self.scores_, self.pvalues_ = self.score_func(X, y)
         self.scores_ = np.asarray(self.scores_)
         self.pvalues_ = np.asarray(self.pvalues_)
-        if len(np.unique(self.pvalues_)) < len(self.pvalues_):
-            warn("Duplicate p-values. Result may depend on feature ordering."
-                 "There are probably duplicate features, or you used a "
-                 "classification score for a regression task.")
         return self
 
 
@@ -315,10 +311,6 @@ class _ScoreFilter(_BaseFilter):
         self.scores_, self.pvalues_ = self.score_func(X, y)
         self.scores_ = np.asarray(self.scores_)
         self.pvalues_ = np.asarray(self.pvalues_)
-        if len(np.unique(self.scores_)) < len(self.scores_):
-            warn("Duplicate scores. Result may depend on feature ordering."
-                 "There are probably duplicate features, or you used a "
-                 "classification score for a regression task.")
         return self
 
 
@@ -428,7 +420,11 @@ class SelectKBest(_ScoreFilter):
         # from argsort, which we transform to a mask, which we probably
         # transform back to indices later.
         mask = np.zeros(scores.shape, dtype=bool)
-        mask[np.argsort(scores)[-k:]] = 1
+
+        # Request a stable sort. Mergesort takes more memory (~40MB per
+        # megafeature on x86-64), but blows heapsort out of the water in
+        # terms of speed.
+        mask[np.argsort(scores, kind="mergesort")[-k:]] = 1
         return mask
 
 

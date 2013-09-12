@@ -1,6 +1,9 @@
 # Authors: Olivier Grisel <olivier.grisel@ensta.org>
 #          Mathieu Blondel <mathieu@mblondel.org>
+#          Denis Engemann <d.engemann@fz-juelich.de>
+#
 # License: BSD 3 clause
+import warnings
 import numpy as np
 from scipy import sparse
 from scipy import linalg
@@ -12,12 +15,16 @@ from sklearn.utils.testing import assert_array_equal
 from sklearn.utils.testing import assert_array_almost_equal
 from sklearn.utils.testing import assert_true
 from sklearn.utils.testing import assert_greater
+from sklearn.utils.testing import assert_raises, assert_raise_message
 
 from sklearn.utils.extmath import density
 from sklearn.utils.extmath import logsumexp
 from sklearn.utils.extmath import randomized_svd
 from sklearn.utils.extmath import weighted_mode
 from sklearn.utils.extmath import cartesian
+from sklearn.utils.extmath import logistic_sigmoid
+from sklearn.utils.extmath import fast_dot
+from sklearn.utils.validation import NonBLASDotWarning
 from sklearn.datasets.samples_generator import make_low_rank_matrix
 
 
@@ -251,3 +258,112 @@ def test_cartesian():
     # check single axis
     x = np.arange(3)
     assert_array_equal(x[:, np.newaxis], cartesian((x,)))
+
+
+def test_logistic_sigmoid():
+    """Check correctness and robustness of logistic sigmoid implementation"""
+    naive_logsig = lambda x: 1 / (1 + np.exp(-x))
+    naive_log_logsig = lambda x: np.log(naive_logsig(x))
+
+    # Simulate the previous Cython implementations of logistic_sigmoid based on
+    #http://fa.bianp.net/blog/2013/numerical-optimizers-for-logistic-regression
+    def stable_logsig(x):
+        out = np.zeros_like(x)
+        positive = x > 0
+        negative = x <= 0
+        out[positive] = 1. / (1 + np.exp(-x[positive]))
+        out[negative] = np.exp(x[negative]) / (1. + np.exp(x[negative]))
+        return out
+
+    x = np.linspace(-2, 2, 50)
+    assert_array_almost_equal(logistic_sigmoid(x), naive_logsig(x))
+    assert_array_almost_equal(logistic_sigmoid(x, log=True),
+                              naive_log_logsig(x))
+    assert_array_almost_equal(logistic_sigmoid(x), stable_logsig(x),
+                              decimal=16)
+
+    extreme_x = np.array([-100, 100], dtype=np.float)
+    assert_array_almost_equal(logistic_sigmoid(extreme_x), [0, 1])
+    assert_array_almost_equal(logistic_sigmoid(extreme_x, log=True), [-100, 0])
+    assert_array_almost_equal(logistic_sigmoid(extreme_x),
+                              stable_logsig(extreme_x),
+                              decimal=16)
+
+
+def test_fast_dot():
+    """Check fast dot blas wrapper function"""
+    rng = np.random.RandomState(42)
+    A = rng.random_sample([2, 10])
+    B = rng.random_sample([2, 10])
+
+    try:
+        linalg.get_blas('gemm')
+        has_blas = True
+    except:
+        has_blas = False
+
+    if has_blas:
+        # test dispatch to np.dot
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter('always', NonBLASDotWarning)
+            # maltyped data
+            for dt1, dt2 in [['f8', 'f4'], ['i4', 'i4']]:
+                fast_dot(A.astype(dt1), B.astype(dt2).T)
+                assert_true(type(w.pop(-1)) == NonBLASDotWarning)
+            # malformed data
+            # ndim == 0
+            E = np.empty(0)
+            fast_dot(E, E)
+            assert_true(type(w.pop(-1)) == NonBLASDotWarning)
+            ## ndim == 1
+            fast_dot(A, A[0])
+            assert_true(type(w.pop(-1)) == NonBLASDotWarning)
+            ## ndim > 2
+            fast_dot(A.T, np.array([A, A]))
+            assert_true(type(w.pop(-1)) == NonBLASDotWarning)
+            ## min(shape) == 1
+            fast_dot(A, A[0, :][None, :])
+            assert_true(type(w.pop(-1)) == NonBLASDotWarning)
+        # test for matrix mismatch error
+        msg = ('Invalid array shapes: A.shape[%d] should be the same as '
+               'B.shape[0]. Got A.shape=%r B.shape=%r' % (A.ndim - 1,
+                                                          A.shape,
+                                                          A.shape))
+        assert_raise_message(msg, fast_dot, A, A)
+
+    # test cov-like use case + dtypes
+    my_assert = assert_array_almost_equal
+    for dtype in ['f8', 'f4']:
+        A = A.astype(dtype)
+        B = B.astype(dtype)
+
+        #  col < row
+        C = np.dot(A.T, A)
+        C_ = fast_dot(A.T, A)
+        my_assert(C, C_)
+
+        C = np.dot(A.T, B)
+        C_ = fast_dot(A.T, B)
+        my_assert(C, C_)
+
+        C = np.dot(A, B.T)
+        C_ = fast_dot(A, B.T)
+        my_assert(C, C_)
+
+    # test square matrix * rectangular use case
+    A = rng.random_sample([2, 2])
+    for dtype in ['f8', 'f4']:
+        A = A.astype(dtype)
+        B = B.astype(dtype)
+
+        C = np.dot(A, B)
+        C_ = fast_dot(A, B)
+        my_assert(C, C_)
+
+        C = np.dot(A.T, B)
+        C_ = fast_dot(A.T, B)
+        my_assert(C, C_)
+
+    if has_blas:
+        for x in [np.array([[d] * 10] * 2) for d in [np.inf, np.nan]]:
+            assert_raises(ValueError, fast_dot, x, x.T)

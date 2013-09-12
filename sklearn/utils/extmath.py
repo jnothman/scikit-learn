@@ -7,10 +7,14 @@ Extended math utilities.
 import warnings
 import numpy as np
 from scipy import linalg
+from scipy.sparse import issparse
+from distutils.version import LooseVersion
 
 from . import check_random_state
 from .fixes import qr_economic
+from ._logistic_sigmoid import _log_logistic_sigmoid
 from ..externals.six.moves import xrange
+from .validation import array2d, NonBLASDotWarning
 
 
 def norm(v):
@@ -56,6 +60,77 @@ else:
     fast_logdet = _fast_logdet
 
 
+def _impose_f_order(X):
+    """Helper Function"""
+    # important to access flags instead of calling np.isfortran,
+    # this catches corner cases.
+    if X.flags.c_contiguous:
+        return array2d(X.T, copy=False, order='F'), True
+    else:
+        return array2d(X, copy=False, order='F'), False
+
+
+def _fast_dot(A, B):
+    """Compute fast dot products directly calling BLAS.
+
+    This function calls BLAS directly while warranting Fortran contiguity.
+    This helps avoiding extra copies `np.dot` would have created.
+    For details see section `Linear Algebra on large Arrays`:
+    http://wiki.scipy.org/PerformanceTips
+
+    Parameters
+    ----------
+    A, B: instance of np.ndarray
+        input matrices. Matrices are supposed to be of the same types
+        and to have exactly 2 dimensions. Currently only floats are supported.
+        In case these requirements aren't met np.dot(A, B) is returned
+        instead. To activate the related warning issued in this case
+        execute the following lines of code:
+
+        >> import warnings
+        >> from sklearn.utils.validation import NonBLASDotWarning
+        >> warnings.simplefilter('always', NonBLASDotWarning)
+    """
+
+    if B.shape[0] != A.shape[A.ndim - 1]:  # check adopted from '_dotblas.c'
+        msg = ('Invalid array shapes: A.shape[%d] should be the same as '
+               'B.shape[0]. Got A.shape=%r B.shape=%r' % (A.ndim - 1,
+                                                          A.shape,
+                                                          B.shape))
+        raise ValueError(msg)
+
+    if A.dtype != B.dtype or any(x.dtype not in (np.float32, np.float64)
+                                 for x in [A, B]):
+        warnings.warn('Data must be of same type. Supported types '
+                      'are 32 and 64 bit float. '
+                      'Falling back to np.dot.', NonBLASDotWarning)
+        return np.dot(A, B)
+
+    if ((min(A.shape) == 1) or (min(B.shape) == 1) or
+        (A.ndim != 2) or (B.ndim != 2)):
+        warnings.warn('Data must be 2D with more than one colum / row.'
+                      'Falling back to np.dot', NonBLASDotWarning)
+        return np.dot(A, B)
+
+    dot = linalg.get_blas_funcs('gemm', (A, B))
+    A, trans_a = _impose_f_order(A)
+    B, trans_b = _impose_f_order(B)
+    return dot(alpha=1.0, a=A, b=B, trans_a=trans_a, trans_b=trans_b)
+
+#  only try to use fast_dot for older numpy versions.
+#  the related issue has been tackled meanwhile. Also, depending on the build
+#  the current numpy master's dot can about 3 times faster.
+if LooseVersion(np.__version__) < '1.7.2':  # backported
+    try:
+        linalg.get_blas_funcs('gemm')
+        fast_dot = _fast_dot
+    except (ImportError, AttributeError):
+        fast_dot = np.dot
+        warnings.warn('Could not import BLAS, falling back to np.dot')
+else:
+    fast_dot = np.dot
+
+
 def density(w, **kwargs):
     """Compute density of a sparse vector
 
@@ -69,7 +144,11 @@ def density(w, **kwargs):
 
 
 def safe_sparse_dot(a, b, dense_output=False):
-    """Dot product that handle the sparse matrix case correctly"""
+    """Dot product that handle the sparse matrix case correctly
+
+    Uses BLAS GEMM as replacement for numpy.dot where possible
+    to avoid unnecessary copies.
+    """
     from scipy import sparse
     if sparse.issparse(a) or sparse.issparse(b):
         ret = a * b
@@ -77,11 +156,10 @@ def safe_sparse_dot(a, b, dense_output=False):
             ret = ret.toarray()
         return ret
     else:
-        return np.dot(a, b)
+        return fast_dot(a, b)
 
 
-def randomized_range_finder(A, size, n_iter, random_state=None,
-                            n_iterations=None):
+def randomized_range_finder(A, size, n_iter, random_state=None):
     """Computes an orthonormal matrix whose range approximates the range of A.
 
     Parameters
@@ -109,10 +187,6 @@ def randomized_range_finder(A, size, n_iter, random_state=None,
     approximate matrix decompositions
     Halko, et al., 2009 (arXiv:909) http://arxiv.org/pdf/0909.4061
     """
-    if n_iterations is not None:
-        warnings.warn("n_iterations was renamed to n_iter for consistency "
-                      "and will be removed in 0.16.", DeprecationWarning)
-        n_iter = n_iterations
     random_state = check_random_state(random_state)
 
     # generating random gaussian vectors r with shape: (A.shape[1], size)
@@ -414,7 +488,7 @@ def cartesian(arrays, out=None):
 
     References
     ----------
-    http://stackoverflow.com/questions/1208118/using-numpy-to-build-an-array-of-all-combinations-of-two-arrays
+    http://stackoverflow.com/q/1208118
 
     """
     arrays = [np.asarray(x).ravel() for x in arrays]
@@ -455,3 +529,90 @@ def svd_flip(u, v):
     u *= signs
     v *= signs[:, np.newaxis]
     return u, v
+
+
+def logistic_sigmoid(X, log=False, out=None):
+    """
+    Implements the logistic function, ``1 / (1 + e ** -x)`` and its log.
+
+    This implementation is more stable by splitting on positive and negative
+    values and computing::
+
+        1 / (1 + exp(-x_i)) if x_i > 0
+        exp(x_i) / (1 + exp(x_i)) if x_i <= 0
+
+    The log is computed using::
+
+        -log(1 + exp(-x_i)) if x_i > 0
+        x_i - log(1 + exp(x_i)) if x_i <= 0
+
+    Parameters
+    ----------
+    X: array-like, shape (M, N)
+        Argument to the logistic function
+
+    log: boolean, default: False
+        Whether to compute the logarithm of the logistic function.
+
+    out: array-like, shape: (M, N), optional:
+        Preallocated output array.
+
+    Returns
+    -------
+    out: array, shape (M, N)
+        Value of the logistic function evaluated at every point in x
+
+    Notes
+    -----
+    See the blog post describing this implementation:
+    http://fa.bianp.net/blog/2013/numerical-optimizers-for-logistic-regression/
+    """
+    is_1d = X.ndim == 1
+    X = array2d(X, dtype=np.float)
+
+    n_samples, n_features = X.shape
+
+    if out is None:
+        out = np.empty_like(X)
+
+    if log:
+        _log_logistic_sigmoid(n_samples, n_features, X, out)
+    else:
+        # logistic(x) = (1 + tanh(x / 2)) / 2
+        out[:] = X
+        out *= .5
+        np.tanh(out, out)
+        out += 1
+        out *= .5
+
+    if is_1d:
+        return np.squeeze(out)
+    return out
+
+
+def safe_min(X):
+    """Returns the minimum value of a dense or a CSR/CSC matrix.
+
+    Adapated from http://stackoverflow.com/q/13426580
+
+    """
+    if issparse(X):
+        if len(X.data) == 0:
+            return 0
+        m = X.data.min()
+        return m if X.getnnz() == X.size else min(m, 0)
+    else:
+        return X.min()
+
+
+def make_nonnegative(X, min_value=0):
+    """Ensure `X.min()` >= `min_value`."""
+    min_ = safe_min(X)
+    if min_ < min_value:
+        if issparse(X):
+            raise ValueError("Cannot make the data matrix"
+                             " nonnegative because it is sparse."
+                             " Adding a value to every entry would"
+                             " make it no longer sparse.")
+        X = X + (min_value - min_)
+    return X

@@ -19,7 +19,7 @@ from ..externals.joblib import Memory
 from ..externals import six
 from ..metrics import euclidean_distances
 from ..utils import array2d
-from ..utils._csgraph import cs_graph_components
+from ..utils.sparsetools import connected_components
 
 from . import _hierarchical
 from ._feature_agglomeration import AgglomerationTransform
@@ -46,7 +46,7 @@ def ward_tree(X, connectivity=None, n_components=None, copy=True,
         feature matrix  representing n_samples samples to be clustered
 
     connectivity : sparse matrix.
-        connectivity matrix. Defines for each sample the neigbhoring samples
+        connectivity matrix. Defines for each sample the neighboring samples
         following a given structure of the data. The matrix is assumed to
         be symmetric and only the upper triangular half is used.
         Default is None, i.e, the Ward algorithm is unstructured.
@@ -74,7 +74,7 @@ def ward_tree(X, connectivity=None, n_components=None, copy=True,
         to leaves of the tree. A greater value `i` indicates a node with
         children `children[i - n_samples]`.
 
-    n_components : sparse matrix.
+    n_components : int
         The number of connected components in the graph.
 
     n_leaves : int
@@ -95,12 +95,12 @@ def ward_tree(X, connectivity=None, n_components=None, copy=True,
                           'structured Ward clustering (i.e. with '
                           'explicit connectivity.', stacklevel=2)
         out = hierarchy.ward(X)
-        children_ = out[:, :2].astype(np.int)
+        children_ = out[:, :2].astype(np.intp)
         return children_, 1, n_samples, None
 
     # Compute the number of nodes
     if n_components is None:
-        n_components, labels = cs_graph_components(connectivity)
+        n_components, labels = connected_components(connectivity)
 
     # Convert connectivity matrix to LIL with a copy if needed
     if sparse.isspmatrix_lil(connectivity) and copy:
@@ -140,27 +140,27 @@ def ward_tree(X, connectivity=None, n_components=None, copy=True,
         coord_row.extend(len(row) * [ind, ])
         coord_col.extend(row)
 
-    coord_row = np.array(coord_row, dtype=np.int)
-    coord_col = np.array(coord_col, dtype=np.int)
+    coord_row = np.array(coord_row, dtype=np.intp, order='C')
+    coord_col = np.array(coord_col, dtype=np.intp, order='C')
 
     # build moments as a list
-    moments_1 = np.zeros(n_nodes)
+    moments_1 = np.zeros(n_nodes, order='C')
     moments_1[:n_samples] = 1
-    moments_2 = np.zeros((n_nodes, n_features))
+    moments_2 = np.zeros((n_nodes, n_features), order='C')
     moments_2[:n_samples] = X
-    inertia = np.empty(len(coord_row), dtype=np.float)
+    inertia = np.empty(len(coord_row), dtype=np.float, order='C')
     _hierarchical.compute_ward_dist(moments_1, moments_2, coord_row, coord_col,
                                     inertia)
     inertia = list(six.moves.zip(inertia, coord_row, coord_col))
     heapify(inertia)
 
     # prepare the main fields
-    parent = np.arange(n_nodes, dtype=np.int)
+    parent = np.arange(n_nodes, dtype=np.intp)
     heights = np.zeros(n_nodes)
     used_node = np.ones(n_nodes, dtype=bool)
     children = []
 
-    not_visited = np.empty(n_nodes, dtype=np.int8)
+    not_visited = np.empty(n_nodes, dtype=np.int8, order='C')
 
     # recursive merge loop
     for k in range(n_samples, n_nodes):
@@ -186,11 +186,11 @@ def ward_tree(X, connectivity=None, n_components=None, copy=True,
         # List comprehension is faster than a for loop
         [A[l].append(k) for l in coord_col]
         A.append(coord_col)
-        coord_col = np.array(coord_col, dtype=np.int)
-        coord_row = np.empty_like(coord_col)
+        coord_col = np.array(coord_col, dtype=np.intp, order='C')
+        coord_row = np.empty(coord_col.shape, dtype=np.intp, order='C')
         coord_row.fill(k)
         n_additions = len(coord_row)
-        ini = np.empty(n_additions, dtype=np.float)
+        ini = np.empty(n_additions, dtype=np.float, order='C')
 
         _hierarchical.compute_ward_dist(moments_1, moments_2,
                                         coord_row, coord_col, ini)
@@ -268,7 +268,7 @@ def _hc_cut(n_clusters, children, n_leaves):
         # Insert the 2 children and remove the largest node
         heappush(nodes, -these_children[0])
         heappushpop(nodes, -these_children[1])
-    label = np.zeros(n_leaves, dtype=np.int)
+    label = np.zeros(n_leaves, dtype=np.intp)
     for i, node in enumerate(nodes):
         label[_hierarchical._hc_get_descendent(-node, children, n_leaves)] = i
     return label
@@ -289,9 +289,9 @@ class Ward(BaseEstimator, ClusterMixin):
         The number of clusters to find.
 
     connectivity : sparse matrix (optional)
-        Connectivity matrix. Defines for each sample the neigbhoring
+        Connectivity matrix. Defines for each sample the neighboring
         samples following a given structure of the data.
-        Default is None, i.e, the hiearchical clustering algorithm is
+        Default is None, i.e, the hierarchical clustering algorithm is
         unstructured.
 
     memory : Instance of joblib.Memory or string (optional)
@@ -326,7 +326,7 @@ class Ward(BaseEstimator, ClusterMixin):
         cluster labels for each point
 
     `n_leaves_` : int
-        Number of leaves in the hiearchical tree.
+        Number of leaves in the hierarchical tree.
 
     `n_components_` : int
         The estimated number of connected components in the graph.
@@ -413,9 +413,9 @@ class WardAgglomeration(AgglomerationTransform, Ward):
         The number of clusters.
 
     connectivity : sparse matrix (optional)
-        connectivity matrix. Defines for each feature the neigbhoring
+        connectivity matrix. Defines for each feature the neighboring
         features following a given structure of the data.
-        Default is None, i.e, the hiearchical agglomeration algorithm is
+        Default is None, i.e, the hierarchical agglomeration algorithm is
         unstructured.
 
     memory : Instance of joblib.Memory or string (optional)
@@ -450,7 +450,7 @@ class WardAgglomeration(AgglomerationTransform, Ward):
         cluster labels for each feature
 
     `n_leaves_` : int
-        Number of leaves in the hiearchical tree.
+        Number of leaves in the hierarchical tree.
 
     `n_components_` : int
         The estimated number of connected components in the graph.

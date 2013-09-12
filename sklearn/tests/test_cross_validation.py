@@ -11,8 +11,11 @@ from sklearn.utils.testing import assert_almost_equal
 from sklearn.utils.testing import assert_raises
 from sklearn.utils.testing import assert_greater
 from sklearn.utils.testing import assert_less
+from sklearn.utils.testing import assert_not_equal
 from sklearn.utils.testing import assert_array_almost_equal
 from sklearn.utils.testing import assert_array_equal
+from sklearn.utils.testing import assert_warns
+from sklearn.utils.testing import ignore_warnings
 
 from sklearn.utils.fixes import unique
 
@@ -24,7 +27,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.metrics import f1_score
 from sklearn.metrics import explained_variance_score
 from sklearn.metrics import fbeta_score
-from sklearn.metrics import Scorer
+from sklearn.metrics import make_scorer
 
 from sklearn.externals import six
 from sklearn.linear_model import Ridge
@@ -83,7 +86,7 @@ class MockClassifier(BaseEstimator):
 
 X = np.ones((10, 2))
 X_sparse = coo_matrix(X)
-y = np.arange(10) / 2
+y = np.arange(10) // 2
 
 ##############################################################################
 # Tests
@@ -107,14 +110,18 @@ def test_kfold_valueerrors():
         # a characteristic of the code and not a behavior
         assert_true("The least populated class" in str(w[0]))
 
-    # Error when number of folds is <= 0
+    # Error when number of folds is <= 1
     assert_raises(ValueError, cval.KFold, 2, 0)
+    assert_raises(ValueError, cval.KFold, 2, 1)
+    assert_raises(ValueError, cval.StratifiedKFold, y, 0)
+    assert_raises(ValueError, cval.StratifiedKFold, y, 1)
 
     # When n is not integer:
-    assert_raises(ValueError, cval.KFold, 2.5, 1)
+    assert_raises(ValueError, cval.KFold, 2.5, 2)
 
     # When n_folds is not integer:
     assert_raises(ValueError, cval.KFold, 5, 1.5)
+    assert_raises(ValueError, cval.StratifiedKFold, y, 1.5)
 
 
 def test_kfold_indices():
@@ -142,6 +149,7 @@ def test_kfold_balance():
         assert_equal(np.sum(sizes), kf.n)
 
 
+@ignore_warnings
 def test_shuffle_kfold():
     # Check the indices are shuffled properly, and that all indices are
     # returned in the different test folds
@@ -214,7 +222,7 @@ def test_stratified_shuffle_split_iter():
 
     for y in ys:
         sss = cval.StratifiedShuffleSplit(y, 6, test_size=0.33,
-                                          random_state=0, indices=True)
+                                          random_state=0)
         for train, test in sss:
             assert_array_equal(unique(y[train]), unique(y[test]))
             # Checks if folds keep classes proportions
@@ -227,6 +235,7 @@ def test_stratified_shuffle_split_iter():
             assert_array_equal(np.lib.arraysetops.intersect1d(train, test), [])
 
 
+@ignore_warnings
 def test_stratified_shuffle_split_iter_no_indices():
     y = np.asarray([0, 1, 2] * 10)
 
@@ -263,12 +272,23 @@ def test_cross_val_score():
         scores = cval.cross_val_score(clf, X, y)
         assert_array_equal(scores, clf.score(X, y))
 
+        # test with multioutput y
+        scores = cval.cross_val_score(clf, X_sparse, X)
+        assert_array_equal(scores, clf.score(X_sparse, X))
+
         scores = cval.cross_val_score(clf, X_sparse, y)
         assert_array_equal(scores, clf.score(X_sparse, y))
+
+        # test with multioutput y
+        scores = cval.cross_val_score(clf, X_sparse, X)
+        assert_array_equal(scores, clf.score(X_sparse, X))
 
     # test with X as list
     clf = MockListClassifier()
     scores = cval.cross_val_score(clf, X.tolist(), y)
+
+    assert_raises(ValueError, cval.cross_val_score, clf, X, y,
+                  scoring="sklearn")
 
 
 def test_cross_val_score_precomputed():
@@ -393,9 +413,10 @@ def test_cross_val_score_with_score_func_regression():
     r2_scores = cval.cross_val_score(reg, X, y, scoring="r2", cv=5)
     assert_array_almost_equal(r2_scores, [0.94, 0.97, 0.97, 0.99, 0.92], 2)
 
-    # Mean squared error
-    mse_scores = cval.cross_val_score(reg, X, y, cv=5, scoring="mse")
-    expected_mse = np.array([763.07, 553.16, 274.38, 273.26, 1681.99])
+    # Mean squared error; this is a loss function, so "scores" are negative
+    mse_scores = cval.cross_val_score(reg, X, y, cv=5,
+                                      scoring="mean_squared_error")
+    expected_mse = np.array([-763.07, -553.16, -274.38, -273.26, -1681.99])
     assert_array_almost_equal(mse_scores, expected_mse, 2)
 
     # Explained variance
@@ -414,17 +435,18 @@ def test_permutation_score():
     cv = cval.StratifiedKFold(y, 2)
 
     score, scores, pvalue = cval.permutation_test_score(
-        svm, X, y, "accuracy", cv)
+        svm, X, y, cv=cv, scoring="accuracy")
     assert_greater(score, 0.9)
     assert_almost_equal(pvalue, 0.0, 1)
 
     score_label, _, pvalue_label = cval.permutation_test_score(
-        svm, X, y, "accuracy", cv, labels=np.ones(y.size), random_state=0)
+        svm, X, y, cv=cv, scoring="accuracy", labels=np.ones(y.size),
+        random_state=0)
     assert_true(score_label == score)
     assert_true(pvalue_label == pvalue)
 
     # test with custom scoring object
-    scorer = Scorer(fbeta_score, beta=2)
+    scorer = make_scorer(fbeta_score, beta=2)
     score_label, _, pvalue_label = cval.permutation_test_score(
         svm, X, y, scoring=scorer, cv=cv, labels=np.ones(y.size),
         random_state=0)
@@ -433,10 +455,10 @@ def test_permutation_score():
 
     # check that we obtain the same results with a sparse representation
     svm_sparse = SVC(kernel='linear')
-    cv_sparse = cval.StratifiedKFold(y, 2, indices=True)
+    cv_sparse = cval.StratifiedKFold(y, 2)
     score_label, _, pvalue_label = cval.permutation_test_score(
-        svm_sparse, X_sparse, y, "accuracy", cv_sparse,
-        labels=np.ones(y.size), random_state=0)
+        svm_sparse, X_sparse, y, cv=cv_sparse,
+        scoring="accuracy", labels=np.ones(y.size), random_state=0)
 
     assert_true(score_label == score)
     assert_true(pvalue_label == pvalue)
@@ -444,8 +466,8 @@ def test_permutation_score():
     # set random y
     y = np.mod(np.arange(len(y)), 3)
 
-    score, scores, pvalue = cval.permutation_test_score(svm, X, y,
-                                                        "accuracy", cv)
+    score, scores, pvalue = cval.permutation_test_score(svm, X, y, cv=cv,
+                                                        scoring="accuracy")
 
     assert_less(score, 0.5)
     assert_greater(pvalue, 0.4)
@@ -462,15 +484,24 @@ def test_cross_val_generator_with_mask():
     X = np.array([[1, 2], [3, 4], [5, 6], [7, 8]])
     y = np.array([1, 1, 2, 2])
     labels = np.array([1, 2, 3, 4])
-    loo = cval.LeaveOneOut(4, indices=False)
-    lpo = cval.LeavePOut(4, 2, indices=False)
-    kf = cval.KFold(4, 2, indices=False)
-    skf = cval.StratifiedKFold(y, 2, indices=False)
-    lolo = cval.LeaveOneLabelOut(labels, indices=False)
-    lopo = cval.LeavePLabelOut(labels, 2, indices=False)
-    ss = cval.ShuffleSplit(4, indices=False)
+    loo = assert_warns(DeprecationWarning, cval.LeaveOneOut,
+                       4, indices=False)
+    lpo = assert_warns(DeprecationWarning, cval.LeavePOut,
+                       4, 2, indices=False)
+    kf = assert_warns(DeprecationWarning, cval.KFold,
+                      4, 2, indices=False)
+    skf = assert_warns(DeprecationWarning, cval.StratifiedKFold,
+                       y, 2, indices=False)
+    lolo = assert_warns(DeprecationWarning, cval.LeaveOneLabelOut,
+                        labels, indices=False)
+    lopo = assert_warns(DeprecationWarning, cval.LeavePLabelOut,
+                        labels, 2, indices=False)
+    ss = assert_warns(DeprecationWarning, cval.ShuffleSplit,
+                      4, indices=False)
     for cv in [loo, lpo, kf, skf, lolo, lopo, ss]:
         for train, test in cv:
+            assert_equal(np.asarray(train).dtype.kind, 'b')
+            assert_equal(np.asarray(train).dtype.kind, 'b')
             X_train, X_test = X[train], X[test]
             y_train, y_test = y[train], y[test]
 
@@ -479,20 +510,51 @@ def test_cross_val_generator_with_indices():
     X = np.array([[1, 2], [3, 4], [5, 6], [7, 8]])
     y = np.array([1, 1, 2, 2])
     labels = np.array([1, 2, 3, 4])
-    loo = cval.LeaveOneOut(4, indices=True)
-    lpo = cval.LeavePOut(4, 2, indices=True)
-    kf = cval.KFold(4, 2, indices=True)
-    skf = cval.StratifiedKFold(y, 2, indices=True)
-    lolo = cval.LeaveOneLabelOut(labels, indices=True)
-    lopo = cval.LeavePLabelOut(labels, 2, indices=True)
+    # explicitly passing indices value is deprecated
+    loo = assert_warns(DeprecationWarning, cval.LeaveOneOut,
+                       4, indices=True)
+    lpo = assert_warns(DeprecationWarning, cval.LeavePOut,
+                       4, 2, indices=True)
+    kf = assert_warns(DeprecationWarning, cval.KFold,
+                      4, 2, indices=True)
+    skf = assert_warns(DeprecationWarning, cval.StratifiedKFold,
+                       y, 2, indices=True)
+    lolo = assert_warns(DeprecationWarning, cval.LeaveOneLabelOut,
+                        labels, indices=True)
+    lopo = assert_warns(DeprecationWarning, cval.LeavePLabelOut,
+                        labels, 2, indices=True)
     b = cval.Bootstrap(2)  # only in index mode
-    ss = cval.ShuffleSplit(2, indices=True)
+    ss = assert_warns(DeprecationWarning, cval.ShuffleSplit,
+                      2, indices=True)
     for cv in [loo, lpo, kf, skf, lolo, lopo, b, ss]:
         for train, test in cv:
+            assert_not_equal(np.asarray(train).dtype.kind, 'b')
+            assert_not_equal(np.asarray(train).dtype.kind, 'b')
             X_train, X_test = X[train], X[test]
             y_train, y_test = y[train], y[test]
 
 
+def test_cross_val_generator_with_default_indices():
+    X = np.array([[1, 2], [3, 4], [5, 6], [7, 8]])
+    y = np.array([1, 1, 2, 2])
+    labels = np.array([1, 2, 3, 4])
+    loo = cval.LeaveOneOut(4)
+    lpo = cval.LeavePOut(4, 2)
+    kf = cval.KFold(4, 2)
+    skf = cval.StratifiedKFold(y, 2)
+    lolo = cval.LeaveOneLabelOut(labels)
+    lopo = cval.LeavePLabelOut(labels, 2)
+    b = cval.Bootstrap(2)  # only in index mode
+    ss = cval.ShuffleSplit(2)
+    for cv in [loo, lpo, kf, skf, lolo, lopo, b, ss]:
+        for train, test in cv:
+            assert_not_equal(np.asarray(train).dtype.kind, 'b')
+            assert_not_equal(np.asarray(train).dtype.kind, 'b')
+            X_train, X_test = X[train], X[test]
+            y_train, y_test = y[train], y[test]
+
+
+@ignore_warnings
 def test_cross_val_generator_mask_indices_same():
     # Test that the cross validation generators return the same results when
     # indices=True and when indices=False
@@ -554,6 +616,7 @@ def test_shufflesplit_reproducible():
     assert_array_equal(list(a for a, b in ss), list(a for a, b in ss))
 
 
+@ignore_warnings
 def test_cross_indices_exception():
     X = coo_matrix(np.array([[1, 2], [3, 4], [5, 6], [7, 8]]))
     y = np.array([1, 1, 2, 2])
