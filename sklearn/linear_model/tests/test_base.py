@@ -139,6 +139,7 @@ def test_center_data():
     assert_array_almost_equal(Xt, X - expected_X_mean)
     assert_array_almost_equal(yt, y - expected_y_mean)
 
+    expected_X_std *= np.sqrt(X.shape[0])
     Xt, yt, X_mean, y_mean, X_std = center_data(X, y, fit_intercept=True,
                                                 normalize=True)
     assert_array_almost_equal(X_mean, expected_X_mean)
@@ -198,6 +199,7 @@ def test_center_data_weighted():
     assert_array_almost_equal(Xt, X - expected_X_mean)
     assert_array_almost_equal(yt, y - expected_y_mean)
 
+    expected_X_std *= np.sqrt(X.shape[0])
     Xt, yt, X_mean, y_mean, X_std = center_data(X, y, fit_intercept=True,
                                                 normalize=True,
                                                 sample_weight=sample_weight)
@@ -238,10 +240,11 @@ def test_sparse_center_data():
     Xt, yt, X_mean, y_mean, X_std = sparse_center_data(X, y,
                                                        fit_intercept=True,
                                                        normalize=True)
+    expected_X_std = np.std(XA, axis=0) * np.sqrt(X.shape[0])
     assert_array_almost_equal(X_mean, np.mean(XA, axis=0))
     assert_array_almost_equal(y_mean, np.mean(y, axis=0))
-    assert_array_almost_equal(X_std, np.std(XA, axis=0))
-    assert_array_almost_equal(Xt.A, XA / np.std(XA, axis=0))
+    assert_array_almost_equal(X_std, expected_X_std)
+    assert_array_almost_equal(Xt.A, XA / expected_X_std)
     assert_array_almost_equal(yt, y - np.mean(y, axis=0))
 
 

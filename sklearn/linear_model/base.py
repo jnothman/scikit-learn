@@ -62,6 +62,7 @@ def sparse_center_data(X, y, fit_intercept, normalize=False):
 
         X_mean, X_var = sparse_mean_var_axis0(X)
         if normalize:
+            X_var *= X.shape[0]
             X_std = np.sqrt(X_var, X_var)
             del X_var
             X_std[X_std == 0] = 1
@@ -98,7 +99,7 @@ def center_data(X, y, fit_intercept, normalize=False, copy=True,
             X_mean = np.average(X, axis=0, weights=sample_weight)
             X -= X_mean
             if normalize:
-                X_std = np.sqrt(np.sum(X ** 2, axis=0) / X.shape[0])
+                X_std = np.sqrt(np.sum(X ** 2, axis=0))
                 X_std[X_std == 0] = 1
                 X /= X_std
             else:
