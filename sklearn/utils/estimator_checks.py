@@ -23,7 +23,8 @@ from sklearn.utils.testing import assert_greater
 from sklearn.utils.testing import SkipTest
 from sklearn.utils.testing import check_skip_travis
 
-from sklearn.base import (clone, ClusterMixin, ClassifierMixin)
+from sklearn.base import (clone, ClusterMixin, ClassifierMixin, RegressorMixin,
+                          TransformerMixin)
 from sklearn.metrics import accuracy_score, adjusted_rand_score, f1_score
 
 from sklearn.lda import LDA
@@ -31,7 +32,7 @@ from sklearn.random_projection import BaseRandomProjection
 from sklearn.feature_selection import SelectKBest
 from sklearn.svm.base import BaseLibSVM
 
-from sklearn.utils.validation import DataConversionWarning
+from sklearn.utils.validation import DataConversionWarning, NotFittedError
 from sklearn.cross_validation import train_test_split
 
 from sklearn.utils import shuffle
@@ -41,6 +42,13 @@ from sklearn.datasets import load_iris, load_boston, make_blobs
 
 BOSTON = None
 CROSS_DECOMPOSITION = ['PLSCanonical', 'PLSRegression', 'CCA', 'PLSSVD']
+
+
+def is_supervised(estimator):
+    return (isinstance(estimator, ClassifierMixin)
+            or isinstance(estimator, RegressorMixin)
+            # transformers can all take a y
+            or isinstance(estimator, TransformerMixin))
 
 
 def _boston_subset(n_samples=200):
@@ -157,6 +165,15 @@ def check_transformer_data_not_an_array(name, Transformer):
     this_X = NotAnArray(X)
     this_y = NotAnArray(np.asarray(y))
     _check_transformer(name, Transformer, this_X, this_y)
+
+
+def check_transformers_unfitted(name, Transformer):
+    X, y = _boston_subset()
+
+    with warnings.catch_warnings(record=True):
+        transformer = Transformer()
+
+    assert_raises(NotFittedError, transformer.transform, X)
 
 
 def _check_transformer(name, Transformer, X, y):
@@ -293,9 +310,9 @@ def check_estimators_nan_inf(name, Estimator):
                     traceback.print_exc(file=sys.stdout)
                     raise e
             except Exception as exc:
-                    print(error_string_fit, Estimator, exc)
-                    traceback.print_exc(file=sys.stdout)
-                    raise exc
+                print(error_string_fit, Estimator, exc)
+                traceback.print_exc(file=sys.stdout)
+                raise exc
             else:
                 raise AssertionError(error_string_fit, Estimator)
             # actually fit
@@ -459,9 +476,9 @@ def check_classifiers_one_label(name, Classifier):
             else:
                 return
         except Exception as exc:
-                print(error_string_fit, Classifier, exc)
-                traceback.print_exc(file=sys.stdout)
-                raise exc
+            print(error_string_fit, Classifier, exc)
+            traceback.print_exc(file=sys.stdout)
+            raise exc
         # predict
         try:
             assert_array_equal(classifier.predict(X_test), y)
@@ -505,7 +522,7 @@ def check_classifiers_train(name, Classifier):
         assert_raises(ValueError, classifier.predict, X.T)
         if hasattr(classifier, "decision_function"):
             try:
-                # decision_function agrees with predict:
+            # decision_function agrees with predict
                 decision = classifier.decision_function(X)
                 if n_classes is 2:
                     assert_equal(decision.shape, (n_samples,))
@@ -526,7 +543,7 @@ def check_classifiers_train(name, Classifier):
             except NotImplementedError:
                 pass
         if hasattr(classifier, "predict_proba"):
-            # predict_proba agrees with predict:
+            # predict_proba agrees with predict
             y_prob = classifier.predict_proba(X)
             assert_equal(y_prob.shape, (n_samples, n_classes))
             assert_array_equal(np.argmax(y_prob, axis=1), y_pred)
@@ -537,6 +554,31 @@ def check_classifiers_train(name, Classifier):
             assert_raises(ValueError, classifier.predict_proba, X.T)
             # raises error on malformed input for predict_proba
             assert_raises(ValueError, classifier.predict_proba, X.T)
+
+
+def check_estimators_unfitted(name, Estimator):
+    """Check if NotFittedError is raised when calling predict and related
+    functions"""
+
+    # Common test for Regressors as well as Classifiers
+    X, y = _boston_subset()
+
+    with warnings.catch_warnings(record=True):
+        est = Estimator()
+
+    assert_raises(NotFittedError, est.predict, X)
+ 
+    if hasattr(est, 'predict'):
+        assert_raises(NotFittedError, est.predict, X)
+
+    if hasattr(est, 'decision_function'):
+        assert_raises(NotFittedError, est.decision_function, X)
+
+    if hasattr(est, 'predict_proba'):
+        assert_raises(NotFittedError, est.predict_proba, X)
+    
+    if hasattr(est, 'predict_log_proba'):
+        assert_raises(NotFittedError, est.predict_log_proba, X)
 
 
 def check_classifiers_input_shapes(name, Classifier):
@@ -559,7 +601,9 @@ def check_classifiers_input_shapes(name, Classifier):
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always", DataConversionWarning)
         classifier.fit(X, y[:, np.newaxis])
-    assert_equal(len(w), 1)
+    msg = "expected 1 DataConversionWarning, got: %s" % (
+        ", ".join([str(w_x) for w_x in w]))
+    assert_equal(len(w), 1, msg)
     assert_array_equal(y_pred, classifier.predict(X))
 
 
@@ -683,9 +727,9 @@ def check_regressors_train(name, Regressor):
     regressor.fit(X.tolist(), y_.tolist())
     regressor.predict(X)
 
-      # TODO: find out why PLS and CCA fail. RANSAC is random
-      # and furthermore assumes the presence of outliers, hence
-      # skipped
+    # TODO: find out why PLS and CCA fail. RANSAC is random
+    # and furthermore assumes the presence of outliers, hence
+    # skipped
     if name not in ('PLSCanonical', 'CCA', 'RANSACRegressor'):
         assert_greater(regressor.score(X, y_), 0.5)
 
@@ -737,6 +781,8 @@ def check_class_weight_classifiers(name, Classifier):
             classifier = Classifier(class_weight=class_weight)
         if hasattr(classifier, "n_iter"):
             classifier.set_params(n_iter=100)
+        if hasattr(classifier, "min_weight_fraction_leaf"):
+            classifier.set_params(min_weight_fraction_leaf=0.01)
 
         set_random_state(classifier)
         classifier.fit(X_train, y_train)
@@ -811,7 +857,10 @@ def check_estimators_overwrite_params(name, Estimator):
     set_random_state(estimator)
 
     params = estimator.get_params()
-    estimator.fit(X, y)
+    if is_supervised(estimator):
+        estimator.fit(X, y)
+    else:
+        estimator.fit(X)
     new_params = estimator.get_params()
     for k, v in params.items():
         assert_false(np.any(new_params[k] != v),
@@ -820,47 +869,10 @@ def check_estimators_overwrite_params(name, Estimator):
                      % (name, k, v, new_params[k]))
 
 
-def check_cluster_overwrite_params(name, Clustering):
-    X, y = make_blobs(random_state=0, n_samples=9)
-    with warnings.catch_warnings(record=True):
-        # catch deprecation warnings
-        clustering = Clustering()
-    set_fast_parameters(clustering)
-    params = clustering.get_params()
-    clustering.fit(X)
-    new_params = clustering.get_params()
-    for k, v in params.items():
-        assert_false(np.any(new_params[k] != v),
-                     "Estimator %s changes its parameter %s"
-                     " from %s to %s during fit."
-                     % (name, k, v, new_params[k]))
-
-
-def check_sparsify_multiclass_classifier(name, Classifier):
+def check_sparsify_coefficients(name, Estimator):
     X = np.array([[-2, -1], [-1, -1], [-1, -2], [1, 1], [1, 2], [2, 1],
                   [-1, -2], [2, 2], [-2, -2]])
     y = [1, 1, 1, 2, 2, 2, 3, 3, 3]
-    est = Classifier()
-
-    est.fit(X, y)
-    pred_orig = est.predict(X)
-
-    # test sparsify with dense inputs
-    est.sparsify()
-    assert_true(sparse.issparse(est.coef_))
-    pred = est.predict(X)
-    assert_array_equal(pred, pred_orig)
-
-    # pickle and unpickle with sparse coef_
-    est = pickle.loads(pickle.dumps(est))
-    assert_true(sparse.issparse(est.coef_))
-    pred = est.predict(X)
-    assert_array_equal(pred, pred_orig)
-
-
-def check_sparsify_binary_classifier(name, Estimator):
-    X = np.array([[-2, -1], [-1, -1], [-1, -2], [1, 1], [1, 2], [2, 1]])
-    y = [1, 1, 1, 2, 2, 2]
     est = Estimator()
 
     est.fit(X, y)
@@ -979,7 +991,8 @@ def multioutput_estimator_convert_y_2d(name, y):
     return y
 
 
-def check_non_transformer_estimators_n_iter(name, estimator, multi_output=False):
+def check_non_transformer_estimators_n_iter(name, estimator, 
+                                            multi_output=False):
     # Check if all iterative solvers, run for more than one iteratiom
 
     iris = load_iris()

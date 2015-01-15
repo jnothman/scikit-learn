@@ -14,6 +14,7 @@ import numpy as np
 import scipy.sparse as sp
 
 from ..externals import six
+from ..base import BaseEstimator
 from inspect import getargspec
 
 
@@ -26,7 +27,14 @@ warnings.simplefilter("always", DataConversionWarning)
 
 class NonBLASDotWarning(UserWarning):
     "A warning on implicit dispatch to numpy.dot"
-    pass
+
+
+class NotFittedError(ValueError, AttributeError):
+    """Exception class to raise if estimator is used before fitting
+
+    This class inherits from both ValueError and AttributeError to help with
+    exception handling and backward compatibility.
+    """
 
 
 # Silenced by default to reduce verbosity. Turn on at runtime for
@@ -394,7 +402,7 @@ def check_random_state(seed):
                      ' instance' % seed)
 
 def has_fit_parameter(estimator, parameter):
-    """ Checks whether the estimator's fit method supports the given parameter.
+    """Checks whether the estimator's fit method supports the given parameter.
 
     Example
     -------
@@ -404,3 +412,99 @@ def has_fit_parameter(estimator, parameter):
 
     """
     return parameter in getargspec(estimator.fit)[0]
+
+
+def check_symmetric(array, tol=1E-10, raise_warning=True,
+                    raise_exception=False):
+    """Make sure that array is 2D, square and symmetric.
+
+    If the array is not symmetric, then a symmetrized version is returned.
+    Optionally, a warning or exception is raised if the matrix is not
+    symmetric.
+
+    Parameters
+    ----------
+    array : nd-array or sparse matrix
+        Input object to check / convert. Must be two-dimensional and square,
+        otherwise a ValueError will be raised.
+    tol : float
+        Absolute tolerance for equivalence of arrays. Default = 1E-10.
+    raise_warning : boolean (default=True)
+        If True then raise a warning if conversion is required.
+    raise_exception : boolean (default=False)
+        If True then raise an exception if array is not symmetric.
+
+    Returns
+    -------
+    array_sym : ndarray or sparse matrix
+        Symmetrized version of the input array, i.e. the average of array
+        and array.transpose(). If sparse, then duplicate entries are first
+        summed and zeros are eliminated.
+    """
+    if (array.ndim != 2) or (array.shape[0] != array.shape[1]):
+        raise ValueError("array must be 2-dimensional and square. "
+                         "shape = {0}".format(array.shape))
+
+    if sp.issparse(array):
+        diff = array - array.T
+        # only csr, csc, and coo have `data` attribute
+        if diff.format not in ['csr', 'csc', 'coo']:
+            diff = diff.tocsr()
+        symmetric = np.all(abs(diff.data) < tol)
+    else:
+        symmetric = np.allclose(array, array.T, atol=tol)
+
+    if not symmetric:
+        if raise_exception:
+            raise ValueError("Array must be symmetric")
+        if raise_warning:
+            warnings.warn("Array is not symmetric, and will be converted "
+                          "to symmetric by average with its transpose.")
+        if sp.issparse(array):
+            conversion = 'to' + array.format
+            array = getattr(0.5 * (array + array.T), conversion)()
+        else:
+            array = 0.5 * (array + array.T)
+
+    return array
+
+
+def check_is_fitted(estimator, attributes, msg=None, all_or_any=all):
+    """Perform is_fitted validation for estimator.
+
+    Checks if the estimator is fitted by verifying the presence of 
+    "all_or_any" of the passed attributes and raises a NotFittedError with the
+    given message.
+
+    Parameters
+    ----------
+    estimator : estimator instance.
+        estimator instance for which the check is performed.
+
+    attributes : attribute name(s) given as string or a list/tuple of strings
+        Eg. : ["coef_", "estimator_", ...], "coef_"
+
+    msg : string
+        The default error message is, "This %(name)s instance is not fitted
+        yet. Call 'fit' with appropriate arguments before using this method."
+
+        For custom messages if "%(name)s" is present in the message string,
+        it is substituted for the estimator name.
+
+        Eg. : "Estimator, %(name)s, must be fitted before sparsifying".
+
+    all_or_any : callable, {all, any}, default all
+        Specify whether all or any of the given attributes must exist.
+    """
+    if msg is None:
+        msg = ("This %(name)s instance is not fitted yet. Call 'fit' with "
+               "appropriate arguments before using this method.")
+
+    if not hasattr(estimator, 'fit'):
+        raise ValueError("%s is not an estimator instance." % (estimator))
+
+    if not isinstance(attributes, (list, tuple)):
+        attributes = [attributes]
+
+    if not all_or_any([hasattr(estimator, attr) for attr in attributes]):
+        raise NotFittedError(msg % {'name' : type(estimator).__name__})

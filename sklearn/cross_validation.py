@@ -677,17 +677,13 @@ class Bootstrap(object):
     indices = True
 
     def __init__(self, n, n_iter=3, train_size=.5, test_size=None,
-                 random_state=None, n_bootstraps=None):
+                 random_state=None):
         # See, e.g., http://youtu.be/BzHz0J9a6k0?t=9m38s for a motivation
         # behind this deprecation
         warnings.warn("Bootstrap will no longer be supported as a " +
                       "cross-validation method as of version 0.15 and " +
                       "will be removed in 0.17", DeprecationWarning)
         self.n = n
-        if n_bootstraps is not None:  # pragma: no cover
-            warnings.warn("n_bootstraps was renamed to n_iter and will "
-                          "be removed in 0.16.", DeprecationWarning)
-            n_iter = n_bootstraps
         self.n_iter = n_iter
         if (isinstance(train_size, numbers.Real) and train_size >= 0.0
                 and train_size <= 1.0):
@@ -1075,6 +1071,16 @@ class StratifiedShuffleSplit(BaseShuffleSplit):
 
 
 ##############################################################################
+def _index_param_value(X, v, indices):
+    """Private helper function for parameter value indexing."""
+    if not _is_arraylike(v) or _num_samples(v) != _num_samples(X):
+        # pass through: skip indexing
+        return v
+    if sp.issparse(v):
+        v = v.tocsr()
+    return safe_indexing(v, indices)
+
+
 def cross_val_predict(estimator, X, y=None, cv=None, n_jobs=1,
                       verbose=0, fit_params=None, pre_dispatch='2*n_jobs'):
     """Generate cross-validated estimates for each input data point
@@ -1187,11 +1193,9 @@ def _fit_and_predict(estimator, X, y, train, test, verbose, fit_params):
         This is the value of the test parameter
     """
     # Adjust length of sample weights
-    n_samples = _num_samples(X)
     fit_params = fit_params if fit_params is not None else {}
-    fit_params = dict([(k, np.asarray(v)[train]
-                       if hasattr(v, '__len__') and len(v) == n_samples else v)
-                       for k, v in fit_params.items()])
+    fit_params = dict([(k, _index_param_value(X, v, train))
+                        for k, v in fit_params.items()])
 
     X_train, y_train = _safe_split(estimator, X, y, train)
     X_test, _ = _safe_split(estimator, X, y, test, train)
@@ -1380,13 +1384,9 @@ def _fit_and_score(estimator, X, y, scorer, train, test, verbose,
         print("[CV] %s %s" % (msg, (64 - len(msg)) * '.'))
 
     # Adjust length of sample weights
-    n_samples = _num_samples(X)
     fit_params = fit_params if fit_params is not None else {}
-    fit_params = dict([(k, (v.tocsr()[train] if sp.issparse(v)
-                            else np.asarray(v)[train])
-                        if _is_arraylike(v) and _num_samples(v) == n_samples
-                        else v)
-                       for k, v in fit_params.items()])
+    fit_params = dict([(k, _index_param_value(X, v, train))
+                        for k, v in fit_params.items()])
 
     if parameters is not None:
         estimator.set_params(**parameters)

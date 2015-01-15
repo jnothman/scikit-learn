@@ -39,6 +39,7 @@ extensions = ['gen_rst',
               'sphinx.ext.autodoc', 'sphinx.ext.autosummary',
               'sphinx.ext.pngmath', 'numpy_ext.numpydoc',
               'sphinx.ext.linkcode',
+              'sphinxcontrib.spelling',
               ]
 
 autosummary_generate = True
@@ -240,3 +241,4 @@ linkcode_resolve = make_linkcode_resolve('sklearn',
                                          u'https://github.com/scikit-learn/'
                                          'scikit-learn/blob/{revision}/'
                                          '{package}/{path}#L{lineno}')
+spelling_word_list_filename = 'spelling_wordlist.txt'

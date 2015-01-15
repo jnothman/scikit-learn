@@ -2,21 +2,29 @@
 
 from tempfile import NamedTemporaryFile
 import numpy as np
-from numpy.testing import assert_array_equal
+from numpy.testing import assert_array_equal, assert_warns
 import scipy.sparse as sp
 from nose.tools import assert_raises, assert_true, assert_false, assert_equal
 from itertools import product
 
-from sklearn.utils import as_float_array, check_array
+from sklearn.utils import as_float_array, check_array, check_symmetric
 
 from sklearn.utils.estimator_checks import NotAnArray
 
 from sklearn.random_projection import sparse_random_matrix
 
+from sklearn.linear_model import ARDRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import SVR
-from sklearn.utils.validation import has_fit_parameter
+
+from sklearn.datasets import make_blobs
+from sklearn.utils import as_float_array, check_array
+from sklearn.utils.estimator_checks import NotAnArray
+from sklearn.utils.validation import (
+        NotFittedError,
+        has_fit_parameter,
+        check_is_fitted)
 
 
 def test_as_float_array():
@@ -201,8 +209,71 @@ def test_check_array():
     result = check_array(X_no_array)
     assert_true(isinstance(result, np.ndarray))
 
+
 def test_has_fit_parameter():
     assert_false(has_fit_parameter(KNeighborsClassifier, "sample_weight"))
     assert_true(has_fit_parameter(RandomForestRegressor, "sample_weight"))
     assert_true(has_fit_parameter(SVR, "sample_weight"))
     assert_true(has_fit_parameter(SVR(), "sample_weight"))
+
+
+def test_check_symmetric():
+    arr_sym = np.array([[0, 1], [1, 2]])
+    arr_bad = np.ones(2)
+    arr_asym = np.array([[0, 2], [0, 2]])
+
+    test_arrays = {'dense': arr_asym,
+                   'dok': sp.dok_matrix(arr_asym),
+                   'csr': sp.csr_matrix(arr_asym),
+                   'csc': sp.csc_matrix(arr_asym),
+                   'coo': sp.coo_matrix(arr_asym),
+                   'lil': sp.lil_matrix(arr_asym),
+                   'bsr': sp.bsr_matrix(arr_asym)}
+
+    # check error for bad inputs
+    assert_raises(ValueError, check_symmetric, arr_bad)
+
+    # check that asymmetric arrays are properly symmetrized
+    for arr_format, arr in test_arrays.items():
+        # Check for warnings and errors
+        assert_warns(UserWarning, check_symmetric, arr)
+        assert_raises(ValueError, check_symmetric, arr, raise_exception=True)
+
+        output = check_symmetric(arr, raise_warning=False)
+        if sp.issparse(output):
+            assert_equal(output.format, arr_format)
+            assert_array_equal(output.toarray(), arr_sym)
+        else:
+            assert_array_equal(output, arr_sym)
+
+
+def test_check_is_fitted():
+    # Check is ValueError raised when non estimator instance passed
+    assert_raises(ValueError, check_is_fitted, ARDRegression, "coef_")
+    assert_raises(ValueError, check_is_fitted, "SVR", "support_")
+
+    ard = ARDRegression()
+    svr = SVR()
+
+    try:
+        assert_raises(NotFittedError, check_is_fitted, ard, "coef_")
+        assert_raises(NotFittedError, check_is_fitted, svr, "support_")
+    except ValueError:
+        assert False, "check_is_fitted failed with ValueError"
+
+    # NotFittedError is a subclass of both ValueError and AttributeError
+    try:
+        check_is_fitted(ard, "coef_", "Random message %(name)s, %(name)s")
+    except ValueError as e:
+        assert_equal(str(e), "Random message ARDRegression, ARDRegression")
+
+    try:
+        check_is_fitted(svr, "support_", "Another message %(name)s, %(name)s")
+    except AttributeError as e:
+        assert_equal(str(e), "Another message SVR, SVR")
+
+    ard.fit(*make_blobs())
+    svr.fit(*make_blobs())
+ 
+    assert_equal(None, check_is_fitted(ard, "coef_"))
+    assert_equal(None, check_is_fitted(svr, "support_"))

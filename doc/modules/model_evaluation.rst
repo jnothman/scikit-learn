@@ -1004,7 +1004,7 @@ Coverage error
 --------------
 
 The :func:`coverage_error` function computes the average number of labels that
-have to be included in the final prediction such such that all true labels
+have to be included in the final prediction such that all true labels
 are predicted. This is useful if you want to know how many top-scored-labels
 you have to predict in average without missing any true one. The best value
 of this metrics is thus the average number of true labels.
@@ -1321,7 +1321,7 @@ imbalance, etc...
 :class:`DummyRegressor` also implements four simple rules of thumb for regression:
 
 - ``mean`` always predicts the mean of the training targets.
-- ``median`` always predicts the median of the training targests.
+- ``median`` always predicts the median of the training targets.
 - ``quantile`` always predicts a user provided quantile of the training targets.
 - ``constant`` always predicts a constant value that is provided by the user.
 

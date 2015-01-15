@@ -148,6 +148,16 @@ Enhancements
      and family now accept callables that return a connectivity matrix.
      By `Manoj Kumar`_.
 
+   - Sparse support for :func:`paired_distances`. By `Joel Nothman`_.
+
+   - DBSCAN now supports sparse input and sample weights, and should be
+     faster in general. By `Joel Nothman`_.
+
+   - Add ``class_weight`` parameter to automatically weight samples by class
+     frequency for :class:`ensemble.RandomForestClassifier`,
+     :class:`tree.DecisionTreeClassifier`, :class:`ensemble.ExtraTreesClassifier`
+     and :class:`tree.ExtraTreeClassifier`. By `Trevor Stephens`_.
+
 Documentation improvements
 ..........................
 
@@ -173,6 +183,16 @@ Documentation improvements
 
 Bug fixes
 .........
+    - Metaestimators now support ducktyping for the presence of ``decision_function``,
+      ``predict_proba`` and other methods. This fixes behavior of
+      :class:`grid_search.GridSearchCV`,
+      :class:`grid_search.RandomizedSearchCV`, :class:`pipeline.Pipeline`,
+      :class:`feature_selection.RFE`, :class:`feature_selection.RFECV` when nested.
+      By `Joel Nothman`_
+
+    - The ``scoring`` attribute of grid-search and cross-validation methods is no longer
+     ignored when a :class:`grid_search.GridSearchCV` is given as a base estimator or
+     the base estimator doesn't have predict.
 
     - The function :func:`hierarchical.ward_tree` now returns the children in
       the same order for both the structured and unstructured versions. By
@@ -221,6 +241,10 @@ Bug fixes
       low, while the behavor should be vice-versa in
       :class:`cluster.AgglomerativeClustering` (and friends).
       This has been fixed By `Manoj Kumar`_
+
+    - Fix lazy centering of data in :func:`linear_model.enet_path` and
+      :func:`linear_model.lasso_path`. It was centered around one. It has
+      been changed to be centred around the origin. By `Manoj Kumar`_
 
 API changes summary
 -------------------
@@ -271,6 +295,14 @@ API changes summary
       `'f1_macro'` or `'f1_weighted'`. `'f1'` is now for binary classification
       only. Similar changes apply to `'precision'` and `'recall'`.
       By `Joel Nothman`_.
+
+    - The ``fit_intercept``, ``normalize`` and ``return_models`` parameters in
+      :func:`linear_model.enet_path` and :func:`linear_model.lasso_path` have
+      been removed. They were deprecated since 0.14
+
+    - From now onwards, all estimators will uniformly raise ``NotFittedError``
+      (:class:`utils.validation.NotFittedError`), when any of the ``predict`` 
+      like methods are called before the model is fit. By `Raghav R V`_.
 
 .. _changes_0_15_2:
 
@@ -3154,3 +3186,7 @@ David Huard, Dave Morrill, Ed Schofield, Travis Oliphant, Pearu Peterson.
 .. _Martin Billinger: https://github.com/kazemakase
 
 .. _Matteo Visconti di Oleggio Castello: http://www.mvdoc.me
+
+.. _Raghav R V: https://github.com/ragv
+
+.. _Trevor Stephens: http://trevorstephens.com/

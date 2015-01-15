@@ -21,6 +21,7 @@ from .linear_model.base import LinearClassifierMixin
 from .covariance import ledoit_wolf, empirical_covariance, shrunk_covariance
 from .utils.multiclass import unique_labels
 from .utils import check_array, check_X_y
+from .utils.validation import check_is_fitted
 from .preprocessing import StandardScaler
 
 
@@ -398,7 +399,8 @@ class LDA(BaseEstimator, LinearClassifierMixin, TransformerMixin):
         else:
             store_covariance = self.store_covariance
         if tol != 1.0e-4:
-            warnings.warn("'tol' was moved to __init__() method.",
+            warnings.warn("'tol' was moved to __init__() method in version"
+                          " 0.16 and will be removed from fit() in 0.18",
                           DeprecationWarning)
             self.tol = tol
         X, y = check_X_y(X, y)
@@ -440,6 +442,8 @@ class LDA(BaseEstimator, LinearClassifierMixin, TransformerMixin):
         X_new : array, shape (n_samples, n_components)
             Transformed data.
         """
+        check_is_fitted(self, ['xbar_', 'scalings_'], all_or_any=any)
+
         X = check_array(X)
         if self.solver == 'lsqr':
             raise NotImplementedError("transform not implemented for 'lsqr' "
